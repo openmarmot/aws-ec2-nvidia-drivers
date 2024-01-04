@@ -1,0 +1,141 @@
+# https://github.com/openmarmot/aws-ec2-nvidia-drivers
+
+# Please check the costs of running a P3 instance type before running !
+
+# Note: the Nvidia driver install is very tempermental. If this fails, spin up a instance by hand 
+#  and run the commands line by line and review the errors. 
+#  Small changes in the image package versions can break it.
+
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: Deploy a EC2 instance with the P3 series Nvidia drivers for Amazon Linux 2 
+
+Parameters:
+  Name:
+    Type: String
+    Description: A unique name for your AWS Resource
+  AmiId:
+    Description: Amazon Linux 2 AMI ID
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+  InstanceType:
+    Type: String
+    Description: EC2 instance type to launch. This template is designed for P3 series instances
+    Default: p3.2xlarge
+  VolumeSize:
+    Description: Size of the EBS Volume in GB.
+    Type: Number
+    Default: 100
+  AccessFromCIDRBlock:
+    Type: String
+    Description: The CIDR used to access the ec2 instances.
+    Default: 10.0.0.0/8
+  VPC:
+    Description: The VPC in which the EC2 instance will reside
+    Type: AWS::EC2::VPC::Id
+  Subnet:
+    Description: The VPC subnet in which the EC2 instance will reside
+    Type: AWS::EC2::Subnet::Id
+
+Resources:
+  rIAMRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: !Sub '${Name}-ec2-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: 'Allow'
+            Principal:
+              Service:
+                - 'ec2.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: ssm-connect-minimal-permissions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: 'Allow'
+                Action:
+                  - 'ssm:UpdateInstanceInformation'
+                  - 'ssmmessages:CreateControlChannel'
+                  - 'ssmmessages:CreateDataChannel'
+                  - 'ssmmessages:OpenControlChannel'
+                  - 'ssmmessages:OpenDataChannel'
+                Resource: '*'
+
+  rInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      InstanceProfileName: !Sub '${Name}-ec2-profile'
+      Roles:
+        - Ref: rIAMRole
+
+  rSecurityGroup:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupDescription: EC2 workspace security group
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: 'Allow Egress'
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [Ref: Name, 'ec2-sg']]
+        - Key: Description
+          Value: EC2 environment security group
+      VpcId: !Ref VPC
+
+  rEC2Instance:
+    Type: 'AWS::EC2::Instance'
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: 'PT15M'
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref rInstanceProfile
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref VolumeSize
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+      SecurityGroupIds:
+        - !GetAtt rSecurityGroup.GroupId
+      SubnetId: !Ref Subnet
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [Ref: Name, 'ec2-AL2']]
+        - Key: Description
+          Value: EC2 AL2 with Nvidia drivers
+      UserData:
+        Fn::Base64: !Sub |
+          #!/usr/bin/env bash
+          
+          # ---- p3 series NVIDIA driver install ----
+          # install pre-reqs
+          yum install -y kernel-devel-$(uname -r) kernel-headers-$(uname -r)
+
+          BASE_URL=https://us.download.nvidia.com/tesla
+          # note that newer versions failed to install on AL2
+          DRIVER_VERSION=510.47.03
+          curl -fSsl -O $BASE_URL/$DRIVER_VERSION/NVIDIA-Linux-x86_64-$DRIVER_VERSION.run
+          chmod +x NVIDIA-Linux-x86_64-$DRIVER_VERSION.run
+          ./NVIDIA-Linux-x86_64-$DRIVER_VERSION.run --tmpdir . --silent
+          
+          /opt/aws/bin/cfn-signal -e $? --stack "${AWS::StackName}" --resource "rEC2Instance" --region "${AWS::Region}"
+          
+Outputs:
+  Ec2InstancePrivateIp:
+    Description: Private IP address of the EC2 workspace instance
+    Value: !GetAtt [rEC2Instance, PrivateIp]
+
+  Ec2InstanceId:
+    Description: Instance Id for the EC2 workspace instance
+    Value: !Ref rEC2Instance
+
+
+  
