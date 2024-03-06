@@ -17,4 +17,11 @@ are a result of my own troubleshooting and trial/error combination of different 
 - test with the nvidia-smi cli command
 - designed to use connect->session manager from the ec2 console to connect to the cli
 
+### cft-al2023-p3-series.yaml
+- Cloudformation template for Amazon Linux 2023 on a p3.x instance type.
+- Note that this is a newer os and has different prereqs to install
+- test with the nvidia-smi cli command
+- designed to use connect->session manager from the ec2 console to connect to the cli
+
+
 
