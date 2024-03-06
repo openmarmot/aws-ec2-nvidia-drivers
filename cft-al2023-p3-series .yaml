@@ -8,16 +8,16 @@
 
 AWSTemplateFormatVersion: 2010-09-09
 
-Description: Deploy a EC2 instance with the P3 series Nvidia drivers for Amazon Linux 2 
+Description: Deploy a EC2 instance with the P3 series Nvidia drivers for Amazon Linux 2023
 
 Parameters:
   Name:
     Type: String
     Description: A unique name for your AWS Resource
   AmiId:
-    Description: Amazon Linux 2 AMI ID
+    Description: Amazon Linux 2023 AMI ID
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
-    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64'
   InstanceType:
     Type: String
     Description: EC2 instance type to launch. This template is designed for P3 series instances
@@ -104,20 +104,21 @@ Resources:
       SubnetId: !Ref Subnet
       Tags:
         - Key: Name
-          Value: !Join ['-', [Ref: Name, 'ec2-AL2']]
+          Value: !Join ['-', [Ref: Name, 'ec2-AL2023']]
         - Key: Description
-          Value: EC2 AL2 with Nvidia drivers
+          Value: EC2 AL2023 with Nvidia drivers
       UserData:
         Fn::Base64: !Sub |
           #!/usr/bin/env bash
           
-          # ---- p3 series NVIDIA driver install ----
+          # ---- p3 series NVIDIA driver install for AL2023----
+          
           # install pre-reqs
-          yum install -y kernel-devel-$(uname -r) kernel-headers-$(uname -r)
-
+          dnf install -y kernel-devel-$(uname -r) kernel-headers-$(uname -r) kernel-modules-extra
+          
+          # silent install of nvidia datacenter drivers for the p3 series
           BASE_URL=https://us.download.nvidia.com/tesla
-          # note that newer versions failed to install on AL2
-          DRIVER_VERSION=510.47.03
+          DRIVER_VERSION=550.54.14
           curl -fSsl -O $BASE_URL/$DRIVER_VERSION/NVIDIA-Linux-x86_64-$DRIVER_VERSION.run
           chmod +x NVIDIA-Linux-x86_64-$DRIVER_VERSION.run
           ./NVIDIA-Linux-x86_64-$DRIVER_VERSION.run --tmpdir . --silent
@@ -132,6 +133,4 @@ Outputs:
   Ec2InstanceId:
     Description: Instance Id for the EC2 workspace instance
     Value: !Ref rEC2Instance
-
-
   
