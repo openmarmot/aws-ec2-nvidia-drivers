@@ -2,9 +2,7 @@
 
 # Please check the costs of running a P3 instance type before running !
 
-# Note: the Nvidia driver install is very tempermental. If this fails, spin up a instance by hand 
-#  and run the commands line by line and review the errors. 
-#  Small changes in the image package versions can break it.
+# Ref: https://repost.aws/articles/ARwfQMxiC-QMOgWykD9mco1w/how-do-i-install-nvidia-gpu-driver-cuda-toolkit-and-optionally-nvidia-container-toolkit-in-amazon-linux-2023-al2023
 
 AWSTemplateFormatVersion: 2010-09-09
 
@@ -87,7 +85,7 @@ Resources:
     Type: 'AWS::EC2::Instance'
     CreationPolicy:
       ResourceSignal:
-        Timeout: 'PT15M'
+        Timeout: 'PT20M'
     Properties:
       ImageId: !Ref AmiId
       InstanceType: !Ref InstanceType
@@ -110,19 +108,32 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/usr/bin/env bash
+
+          # --- general ---
+          dnf update -y
           
-          # ---- p3 series NVIDIA driver install for AL2023----
+          # ---- NVIDIA driver install for AL2023----
+          # pre-reqs
+          dnf install -y dkms kernel-devel kernel-modules-extra
+          # repos
+          dnf config-manager --add-repo https://developer.download.nvidia.com/compute/cuda/repos/amzn2023/x86_64/cuda-amzn2023.repo
+          dnf config-manager --add-repo https://nvidia.github.io/libnvidia-container/stable/rpm/nvidia-container-toolkit.repo
+          dnf clean expire-cache
           
-          # install pre-reqs
-          dnf install -y kernel-devel-$(uname -r) kernel-headers-$(uname -r) kernel-modules-extra
-          
-          # silent install of nvidia datacenter drivers for the p3 series
-          BASE_URL=https://us.download.nvidia.com/tesla
-          DRIVER_VERSION=550.54.14
-          curl -fSsl -O $BASE_URL/$DRIVER_VERSION/NVIDIA-Linux-x86_64-$DRIVER_VERSION.run
-          chmod +x NVIDIA-Linux-x86_64-$DRIVER_VERSION.run
-          ./NVIDIA-Linux-x86_64-$DRIVER_VERSION.run --tmpdir . --silent
-          
+          # nvidia driver
+          dnf module install -y nvidia-driver:latest-dkms
+
+          # cuda toolkit
+          dnf install -y cuda-toolkit
+
+          # optional - install the container tool kit 
+          dnf install -y nvidia-container-toolkit
+
+          # tests
+          # nvidia-smi
+          # /etc/alternatives/cuda/bin/nvcc --version
+
+          # --- signal back to cloudformation that we are done ---
           /opt/aws/bin/cfn-signal -e $? --stack "${AWS::StackName}" --resource "rEC2Instance" --region "${AWS::Region}"
           
 Outputs:
